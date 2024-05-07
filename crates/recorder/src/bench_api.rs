@@ -89,7 +89,7 @@ where
         stdin_path: Option<&Path>,
         measurements: &'a mut Measurements<'c>,
         measure: &'a mut M,
-        execution_flags: Option<&'a str>,
+        execution_flags: &'a str,
     ) -> Self {
         let working_dir = working_dir.display().to_string();
         let stdout_path = stdout_path.display().to_string();
@@ -117,8 +117,8 @@ where
             execution_timer: measurement_data as *mut u8,
             execution_start: Self::execution_start,
             execution_end: Self::execution_end,
-            execution_flags_ptr: execution_flags.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
-            execution_flags_len: execution_flags.as_ref().map_or(0, |p| p.len()),
+            execution_flags_ptr: execution_flags.as_ptr(),
+            execution_flags_len: execution_flags.len(),
         };
 
         let mut engine = ptr::null_mut();

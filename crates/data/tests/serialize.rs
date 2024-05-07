@@ -1,4 +1,4 @@
-use sightglass_data::{EffectSize, Phase};
+use sightglass_data::{EffectSize, EngineResult, Phase};
 
 #[test]
 fn effect_size_serialized_to_csv() {
@@ -11,10 +11,16 @@ fn effect_size_serialized_to_csv() {
             wasm: "benchmark.wasm".into(),
             phase: Phase::Execution,
             event: "cycles".into(),
-            a_engine: "control.so".into(),
-            a_mean: 100.0,
-            b_engine: "feature.so".into(),
-            b_mean: 110.0,
+            a_results: EngineResult {
+                engine: "control.so".into(),
+                engine_flags: String::new(),
+                mean: 100.0,
+            },
+            b_results: EngineResult {
+                engine: "feature.so".into(),
+                engine_flags: String::new(),
+                mean: 110.0,
+            },
             significance_level: 0.05,
             half_width_confidence_interval: 1.3,
         })

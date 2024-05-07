@@ -9,6 +9,7 @@ use std::{
 pub struct Measurements<'a> {
     arch: &'a str,
     engine: &'a str,
+    engine_flags: &'a str,
     wasm: &'a str,
     process: u32,
     iteration: u32,
@@ -17,10 +18,11 @@ pub struct Measurements<'a> {
 
 impl<'a> Measurements<'a> {
     /// Construct a new `Measurements`.
-    pub fn new(arch: &'a str, engine: &'a str, wasm: &'a str) -> Self {
+    pub fn new(arch: &'a str, engine: &'a str, engine_flags: &'a str, wasm: &'a str) -> Self {
         Measurements {
             arch,
             engine,
+            engine_flags,
             wasm,
             process: std::process::id(),
             iteration: 0,
@@ -44,6 +46,7 @@ impl<'a> Measurements<'a> {
         self.measurements.push(Measurement {
             arch: self.arch.into(),
             engine: self.engine.into(),
+            engine_flags: self.engine_flags.into(),
             wasm: self.wasm.into(),
             process: self.process,
             iteration: self.iteration,

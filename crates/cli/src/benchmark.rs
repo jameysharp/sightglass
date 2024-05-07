@@ -47,9 +47,10 @@ pub struct BenchmarkCommand {
     engines: Vec<String>,
 
     /// Configure an engine using engine-specific flags. (For the Wasmtime
-    /// engine, these can be a subset of flags from `wasmtime run --help`).
+    /// engine, these can be a subset of flags from `wasmtime run --help`). Each
+    /// engine will be tested with the flags from each use of `--engine-flags`.
     #[structopt(long("engine-flags"), value_name = "ENGINE_FLAGS")]
-    engine_flags: Option<String>,
+    engine_flags: Vec<String>,
 
     /// How many processes should we use for each Wasm benchmark?
     #[structopt(long = "processes", default_value = "10", value_name = "PROCESSES")]
@@ -153,6 +154,13 @@ impl BenchmarkCommand {
             bind_to_single_core().context("attempting to pin execution to a single core")?;
         }
 
+        const NO_FLAGS: &[String] = &[String::new()];
+        let engine_flags = if self.engine_flags.is_empty() {
+            NO_FLAGS
+        } else {
+            self.engine_flags.as_slice()
+        };
+
         let wasm_files: Vec<_> = self
             .benchmarks
             .iter()
@@ -167,54 +175,59 @@ impl BenchmarkCommand {
             let lib = unsafe { libloading::Library::new(&engine_path)? };
             let mut bench_api = unsafe { BenchApi::new(&lib)? };
 
-            for wasm_file in &wasm_files {
-                log::info!("Using Wasm benchmark: {}", wasm_file);
+            for engine_flags in engine_flags {
+                for wasm_file in &wasm_files {
+                    log::info!("Using Wasm benchmark: {}", wasm_file);
 
-                // Use the provided --working-dir, otherwise find the Wasm file's parent directory.
-                let working_dir = self.get_working_directory(&wasm_file)?;
-                log::info!("Using working directory: {}", working_dir.display());
+                    // Use the provided --working-dir, otherwise find the Wasm file's parent directory.
+                    let working_dir = self.get_working_directory(&wasm_file)?;
+                    log::info!("Using working directory: {}", working_dir.display());
 
-                // Read the Wasm bytes.
-                let bytes = fs::read(&wasm_file).context("Attempting to read Wasm bytes")?;
-                log::debug!("Wasm benchmark size: {} bytes", bytes.len());
+                    // Read the Wasm bytes.
+                    let bytes = fs::read(&wasm_file).context("Attempting to read Wasm bytes")?;
+                    log::debug!("Wasm benchmark size: {} bytes", bytes.len());
 
-                let mut measurements = Measurements::new(this_arch(), engine, wasm_file);
-                let mut measure = self.measure.build();
+                    let mut measurements =
+                        Measurements::new(this_arch(), engine, engine_flags, wasm_file);
+                    let mut measure = self.measure.build();
 
-                // Run the benchmark (compilation, instantiation, and execution) several times in
-                // this process.
-                for i in 0..self.iterations_per_process {
-                    let wasm_hash = {
-                        use std::collections::hash_map::DefaultHasher;
-                        use std::hash::{Hash, Hasher};
-                        let mut hasher = DefaultHasher::new();
-                        wasm_file.hash(&mut hasher);
-                        hasher.finish()
-                    };
-                    let stdout = format!("stdout-{:x}-{}-{}.log", wasm_hash, std::process::id(), i);
-                    let stdout = Path::new(&stdout);
-                    let stderr = format!("stderr-{:x}-{}-{}.log", wasm_hash, std::process::id(), i);
-                    let stderr = Path::new(&stderr);
-                    let stdin = None;
+                    // Run the benchmark (compilation, instantiation, and execution) several times in
+                    // this process.
+                    for i in 0..self.iterations_per_process {
+                        let wasm_hash = {
+                            use std::collections::hash_map::DefaultHasher;
+                            use std::hash::{Hash, Hasher};
+                            let mut hasher = DefaultHasher::new();
+                            wasm_file.hash(&mut hasher);
+                            hasher.finish()
+                        };
+                        let stdout =
+                            format!("stdout-{:x}-{}-{}.log", wasm_hash, std::process::id(), i);
+                        let stdout = Path::new(&stdout);
+                        let stderr =
+                            format!("stderr-{:x}-{}-{}.log", wasm_hash, std::process::id(), i);
+                        let stderr = Path::new(&stderr);
+                        let stdin = None;
 
-                    benchmark(
-                        &mut bench_api,
-                        &working_dir,
-                        stdout,
-                        stderr,
-                        stdin,
-                        &bytes,
-                        self.stop_after_phase.clone(),
-                        self.engine_flags.as_deref(),
-                        &mut measure,
-                        &mut measurements,
-                    )?;
+                        benchmark(
+                            &mut bench_api,
+                            &working_dir,
+                            stdout,
+                            stderr,
+                            stdin,
+                            &bytes,
+                            self.stop_after_phase.clone(),
+                            engine_flags,
+                            &mut measure,
+                            &mut measurements,
+                        )?;
 
-                    self.check_output(Path::new(wasm_file), stdout, stderr)?;
-                    measurements.next_iteration();
+                        self.check_output(Path::new(wasm_file), stdout, stderr)?;
+                        measurements.next_iteration();
+                    }
+
+                    all_measurements.extend(measurements.finish());
                 }
-
-                all_measurements.extend(measurements.finish());
             }
         }
 
@@ -324,7 +337,7 @@ impl BenchmarkCommand {
                 command.arg("--stop-after").arg(phase.to_string());
             }
 
-            if let Some(flags) = &self.engine_flags {
+            for flags in &self.engine_flags {
                 command.arg(format!("--engine-flags={}", flags));
             }
 

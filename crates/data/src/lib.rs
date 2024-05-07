@@ -28,6 +28,10 @@ pub struct Measurement<'a> {
     /// record this measurement.
     pub engine: Cow<'a, str>,
 
+    /// The flags passed to the wasmtime benchmark API shared library for this
+    /// measurement.
+    pub engine_flags: Cow<'a, str>,
+
     /// The file path of the Wasm benchmark program.
     pub wasm: Cow<'a, str>,
 
@@ -52,6 +56,13 @@ pub struct Measurement<'a> {
     /// of microseconds if the event is wall time, or it might be a count of
     /// instructions if the event is instructions retired.
     pub count: u64,
+}
+
+impl Measurement<'_> {
+    /// The combination of engine and flags used for this measurement.
+    pub fn engine_and_flags(&self) -> (&str, &str) {
+        (&self.engine, &self.engine_flags)
+    }
 }
 
 /// A phase in a Wasm program's lifecycle.
@@ -102,6 +113,10 @@ pub struct Summary<'a> {
     /// record this measurement.
     pub engine: Cow<'a, str>,
 
+    /// The flags passed to the wasmtime benchmark API shared library for this
+    /// measurement.
+    pub engine_flags: Cow<'a, str>,
+
     /// The file path of the Wasm benchmark program.
     pub wasm: Cow<'a, str>,
 
@@ -129,6 +144,22 @@ pub struct Summary<'a> {
     pub mean_deviation: f64,
 }
 
+/// One of the engines measured in [`EffectSize`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EngineResult {
+    /// The engine being compared.
+    ///
+    /// This is the file path of the wasmtime benchmark API shared library used
+    /// to record this measurement.
+    pub engine: String,
+
+    /// Flags used with this engine.
+    pub engine_flags: String,
+
+    /// The engine's result's arithmetic mean of the `count` field.
+    pub mean: f64,
+}
+
 /// The effect size (and confidence interval) between two different engines
 /// (i.e. two different commits of Wasmtime).
 ///
@@ -152,23 +183,11 @@ pub struct EffectSize<'a> {
     /// executed, instructions retired, cache misses, etc.
     pub event: Cow<'a, str>,
 
-    /// The first engine being compared.
-    ///
-    /// This is the file path of the wasmtime benchmark API shared library used
-    /// to record this measurement.
-    pub a_engine: Cow<'a, str>,
+    /// The first engine's results.
+    pub a_results: EngineResult,
 
-    /// The first engine's result's arithmetic mean of the `count` field.
-    pub a_mean: f64,
-
-    /// The second engine being compared.
-    ///
-    /// This is the file path of the wasmtime benchmark API shared library used
-    /// to record this measurement.
-    pub b_engine: Cow<'a, str>,
-
-    /// The second engine's result's arithmetic mean of the `count` field.
-    pub b_mean: f64,
+    /// The second engine's results.
+    pub b_results: EngineResult,
 
     /// The significance level for the confidence interval.
     ///
@@ -188,22 +207,23 @@ impl EffectSize<'_> {
     /// Is the difference between `self.a_mean` and `self.b_mean` statistically
     /// significant?
     pub fn is_significant(&self) -> bool {
-        (self.a_mean - self.b_mean).abs() > self.half_width_confidence_interval.abs()
+        (self.a_results.mean - self.b_results.mean).abs()
+            > self.half_width_confidence_interval.abs()
     }
 
     /// Return `b`'s speedup over `a` and the speedup's confidence interval.
     pub fn b_speed_up_over_a(&self) -> (f64, f64) {
         (
-            self.b_mean / self.a_mean,
-            self.half_width_confidence_interval / self.a_mean,
+            self.b_results.mean / self.a_results.mean,
+            self.half_width_confidence_interval / self.a_results.mean,
         )
     }
 
     /// Return `a`'s speed up over `b` and the speed up's confidence interval.
     pub fn a_speed_up_over_b(&self) -> (f64, f64) {
         (
-            self.a_mean / self.b_mean,
-            self.half_width_confidence_interval / self.b_mean,
+            self.a_results.mean / self.b_results.mean,
+            self.half_width_confidence_interval / self.b_results.mean,
         )
     }
 }

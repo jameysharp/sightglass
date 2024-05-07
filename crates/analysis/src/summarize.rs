@@ -15,6 +15,7 @@ pub fn calculate<'a>(measurements: &[Measurement<'a>]) -> Vec<Summary<'a>> {
         summaries.push(Summary {
             arch: k.arch.unwrap(),
             engine: k.engine.unwrap(),
+            engine_flags: k.engine_flags.unwrap(),
             wasm: k.wasm.unwrap(),
             phase: k.phase.unwrap(),
             event: k.event.unwrap(),
@@ -114,6 +115,7 @@ mod tests {
             Measurement {
                 arch: "x86".into(),
                 engine: "wasmtime".into(),
+                engine_flags: String::new().into(),
                 wasm: "bench.wasm".into(),
                 process: 42,
                 iteration: 0,
@@ -130,6 +132,7 @@ mod tests {
             vec![Summary {
                 arch: "x86".into(),
                 engine: "wasmtime".into(),
+                engine_flags: "".into(),
                 wasm: "bench.wasm".into(),
                 phase: Phase::Compilation,
                 event: "cycles".into(),
@@ -148,6 +151,7 @@ mod tests {
             Measurement {
                 arch: "x86".into(),
                 engine: "wasmtime".into(),
+                engine_flags: String::new().into(),
                 wasm: "bench.wasm".into(),
                 process: 42,
                 iteration: 0,

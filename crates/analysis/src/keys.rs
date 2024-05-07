@@ -72,6 +72,11 @@ impl KeyBuilder {
             .map(|m| Key {
                 arch: if self.arch { Some(m.arch) } else { None },
                 engine: if self.engine { Some(m.engine) } else { None },
+                engine_flags: if self.engine {
+                    Some(m.engine_flags)
+                } else {
+                    None
+                },
                 wasm: if self.wasm { Some(m.wasm) } else { None },
                 phase: if self.phase { Some(m.phase) } else { None },
                 event: if self.event { Some(m.event) } else { None },
@@ -86,6 +91,7 @@ impl KeyBuilder {
 pub struct Key<'a> {
     pub arch: Option<Cow<'a, str>>,
     pub engine: Option<Cow<'a, str>>,
+    pub engine_flags: Option<Cow<'a, str>>,
     pub wasm: Option<Cow<'a, str>>,
     pub phase: Option<Phase>,
     pub event: Option<Cow<'a, str>>,
@@ -96,6 +102,10 @@ impl Key<'_> {
     pub fn matches(&self, m: &Measurement) -> bool {
         self.arch.as_ref().map_or(true, |x| *x == m.arch)
             && self.engine.as_ref().map_or(true, |x| *x == m.engine)
+            && self
+                .engine_flags
+                .as_ref()
+                .map_or(true, |x| *x == m.engine_flags)
             && self.wasm.as_ref().map_or(true, |x| *x == m.wasm)
             && self.phase.as_ref().map_or(true, |x| *x == m.phase)
             && self.event.as_ref().map_or(true, |x| *x == m.event)
@@ -112,6 +122,7 @@ mod tests {
         let key = Key {
             arch: Some("x86".into()),
             engine: Some("wasmtime".into()),
+            engine_flags: Some("".into()),
             wasm: Some("bench.wasm".into()),
             phase: Some(Phase::Compilation),
             event: Some("cycles".into()),
@@ -122,6 +133,7 @@ mod tests {
         assert!(key.matches(&Measurement {
             arch: "x86".into(),
             engine: "wasmtime".into(),
+            engine_flags: String::new().into(),
             wasm: "bench.wasm".into(),
             process: 42,
             iteration: 0,

@@ -51,7 +51,7 @@ mod tests {
             return;
         }
 
-        let mut measurements = Measurements::new("arch".into(), "engine".into(), "wasm".into());
+        let mut measurements = Measurements::new("arch", "engine", "", "wasm");
         let mut measure = InstsRetiredMeasure::new();
         measure.start(Phase::Compilation);
         eprintln!("test test test...");

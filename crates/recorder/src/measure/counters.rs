@@ -156,7 +156,7 @@ mod tests {
             return;
         }
 
-        let mut measurements = Measurements::new("arch".into(), "engine".into(), "wasm".into());
+        let mut measurements = Measurements::new("arch", "engine", "", "wasm");
         let mut measure = CounterMeasure::new();
         measure.start(Phase::Compilation);
         let mut a = 0;

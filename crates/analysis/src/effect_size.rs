@@ -1,6 +1,6 @@
 use crate::keys::KeyBuilder;
 use anyhow::Result;
-use sightglass_data::{EffectSize, Measurement, Phase, Summary};
+use sightglass_data::{EffectSize, EngineResult, Measurement, Phase, Summary};
 use std::{collections::BTreeSet, io::Write};
 
 /// Find the effect size (and confidence interval) of between two different
@@ -32,7 +32,10 @@ pub fn calculate<'a>(
         let key_measurements: Vec<_> = measurements.iter().filter(|m| key.matches(m)).collect();
 
         // NB: `BTreeSet` so they're always sorted.
-        let engines: BTreeSet<_> = key_measurements.iter().map(|m| &m.engine).collect();
+        let engines: BTreeSet<_> = key_measurements
+            .iter()
+            .map(|m| m.engine_and_flags())
+            .collect();
         anyhow::ensure!(
             engines.len() == 2,
             "Can only test significance between exactly two different engines. Found {} \
@@ -46,12 +49,12 @@ pub fn calculate<'a>(
 
         let a: behrens_fisher::Stats = key_measurements
             .iter()
-            .filter(|m| m.engine.as_ref() == engine_a)
+            .filter(|m| m.engine_and_flags() == engine_a)
             .map(|m| m.count as f64)
             .collect();
         let b: behrens_fisher::Stats = key_measurements
             .iter()
-            .filter(|m| m.engine.as_ref() == engine_b)
+            .filter(|m| m.engine_and_flags() == engine_b)
             .map(|m| m.count as f64)
             .collect();
 
@@ -61,10 +64,16 @@ pub fn calculate<'a>(
             wasm: key.wasm.unwrap(),
             phase: key.phase.unwrap(),
             event: key.event.unwrap(),
-            a_engine: engine_a.clone(),
-            a_mean: a.mean,
-            b_engine: engine_b.clone(),
-            b_mean: b.mean,
+            a_results: EngineResult {
+                engine: engine_a.0.to_string(),
+                engine_flags: engine_a.1.to_string(),
+                mean: a.mean,
+            },
+            b_results: EngineResult {
+                engine: engine_b.0.to_string(),
+                engine_flags: engine_b.1.to_string(),
+                mean: b.mean,
+            },
             significance_level,
             half_width_confidence_interval: ci,
         });
@@ -102,9 +111,10 @@ pub fn write(
 
         // For readability, trim the shared prefix from our two engine names.
         let end_of_shared_prefix = effect_size
-            .a_engine
+            .a_results
+            .engine
             .char_indices()
-            .zip(effect_size.b_engine.char_indices())
+            .zip(effect_size.b_results.engine.char_indices())
             .find_map(|((i, a), (j, b))| {
                 if a == b {
                     None
@@ -114,60 +124,73 @@ pub fn write(
                 }
             })
             .unwrap_or(0);
-        let a_engine = &effect_size.a_engine[end_of_shared_prefix..];
-        let b_engine = &effect_size.b_engine[end_of_shared_prefix..];
+        let a_engine = &effect_size.a_results.engine[end_of_shared_prefix..];
+        let b_engine = &effect_size.b_results.engine[end_of_shared_prefix..];
 
         if effect_size.is_significant() {
+            let mut fast_results = &effect_size.a_results;
+            let mut slow_results = &effect_size.b_results;
+            let mut fast_engine = a_engine;
+            let mut slow_engine = b_engine;
+            if fast_results.mean > slow_results.mean {
+                std::mem::swap(&mut fast_results, &mut slow_results);
+                std::mem::swap(&mut fast_engine, &mut slow_engine);
+            }
+
             writeln!(
                 output_file,
                 "  Δ = {:.2} ± {:.2} (confidence = {}%)",
-                (effect_size.b_mean - effect_size.a_mean).abs(),
+                slow_results.mean - fast_results.mean,
                 effect_size.half_width_confidence_interval.abs(),
                 (1.0 - significance_level) * 100.0,
             )?;
             writeln!(output_file)?;
 
-            if effect_size.a_mean < effect_size.b_mean {
-                let ratio = effect_size.b_mean / effect_size.a_mean;
-                let ratio_ci = effect_size.half_width_confidence_interval / effect_size.a_mean;
-                writeln!(
-                    output_file,
-                    "  {a_engine} is {ratio_min:.2}x to {ratio_max:.2}x faster than {b_engine}!",
-                    a_engine = a_engine,
-                    b_engine = b_engine,
-                    ratio_min = ratio - ratio_ci,
-                    ratio_max = ratio + ratio_ci,
-                )?;
+            let fast_space = if !fast_engine.is_empty() && !fast_results.engine_flags.is_empty() {
+                " "
             } else {
-                let ratio = effect_size.a_mean / effect_size.b_mean;
-                let ratio_ci = effect_size.half_width_confidence_interval / effect_size.b_mean;
-                writeln!(
-                    output_file,
-                    "  {b_engine} is {ratio_min:.2}x to {ratio_max:.2}x faster than {a_engine}!",
-                    a_engine = a_engine,
-                    b_engine = b_engine,
-                    ratio_min = ratio - ratio_ci,
-                    ratio_max = ratio + ratio_ci,
-                )?;
-            }
+                ""
+            };
+            let slow_space = if !slow_engine.is_empty() && !slow_results.engine_flags.is_empty() {
+                " "
+            } else {
+                ""
+            };
+
+            let ratio = slow_results.mean / fast_results.mean;
+            let ratio_ci = effect_size.half_width_confidence_interval / fast_results.mean;
+            writeln!(
+                output_file,
+                "  {fast_engine}{fast_space}{fast_flags} is {ratio_min:.2}x to {ratio_max:.2}x faster than {slow_engine}{slow_space}{slow_flags}!",
+                fast_flags = fast_results.engine_flags,
+                slow_flags = slow_results.engine_flags,
+                ratio_min = ratio - ratio_ci,
+                ratio_max = ratio + ratio_ci,
+            )?;
         } else {
             writeln!(output_file, "  No difference in performance.")?;
         }
         writeln!(output_file)?;
 
-        let get_summary = |engine: &str, wasm: &str, phase: Phase, event: &str| {
-            // TODO this sorting is not using `arch` which is not guaranteed to be the same in
-            // result sets; potentially this could re-use `Key` functionality.
-            summaries
-                .iter()
-                .find(|s| {
-                    s.engine == engine && s.wasm == wasm && s.phase == phase && s.event == event
-                })
-                .unwrap()
-        };
+        let get_summary =
+            |engine: &str, engine_flags: &str, wasm: &str, phase: Phase, event: &str| {
+                // TODO this sorting is not using `arch` which is not guaranteed to be the same in
+                // result sets; potentially this could re-use `Key` functionality.
+                summaries
+                    .iter()
+                    .find(|s| {
+                        s.engine == engine
+                            && s.engine_flags == engine_flags
+                            && s.wasm == wasm
+                            && s.phase == phase
+                            && s.event == event
+                    })
+                    .unwrap()
+            };
 
         let a_summary = get_summary(
-            &effect_size.a_engine,
+            &effect_size.a_results.engine,
+            &effect_size.a_results.engine_flags,
             &effect_size.wasm,
             effect_size.phase,
             &effect_size.event,
@@ -179,7 +202,8 @@ pub fn write(
         )?;
 
         let b_summary = get_summary(
-            &effect_size.b_engine,
+            &effect_size.b_results.engine,
+            &effect_size.b_results.engine_flags,
             &effect_size.wasm,
             effect_size.phase,
             &effect_size.event,
